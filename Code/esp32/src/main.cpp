@@ -23,13 +23,14 @@
 #define trig2 48
 #define echo2 45
 #define THRESHOLD 15
-#define servoPin 20
+#define LOWCOUNT 7
+#define servoPin 21
 
 bool insideLow = false;
 bool outsideLow = false;
 int insideLowCount = 0;
 int outsideLowCount = 0;
-char flipflopvar = ' ';
+char flipflopvar[2];
 
 Servo lock;
 bool lockStat; // false if unlocked
@@ -57,16 +58,40 @@ Keypad k = Keypad(makeKeymap(keys), row_pins, col_pins, num_rows, num_cols);
 void unlockSuccessEvent();
 void unlockFailEvent();
 
-void flipflop(char input){
-  if(flipflopvar == ' ' || flipflopvar == input){
-      flipflopvar = input;
-  } else {
-    if(flipflopvar == 'o' && input == 'i')
-      printf("Going Inside\n");
-    if(flipflopvar == 'i' && input == 'o')
-      printf("Going Outside\n");
-    flipflopvar = ' ';
+int flipflop(char input){
+  // if(input == 'a'){
+  //   flipflopvar = 'a';
+  // }
+  // if(flipflopvar == 'a' || flipflopvar == input){
+  //     flipflopvar = input;
+  //     return -1;
+  // } else {
+  //   if(flipflopvar == 'o' && input == 'i'){
+  //     printf("Going Inside\n");
+  //     return 1;
+  //   }
+  //   if(flipflopvar == 'i' && input == 'o'){
+  //     printf("Going Outside\n");
+  //     return 0;
+  //   }
+  //   return -1;
+  // }
+  if(input == 'a' && flipflopvar[0] != 'a' && flipflopvar[1] != 'a'){
+    flipflopvar[0] = 'a';
+    flipflopvar[1] = 'a';
   }
+  if(flipflopvar[0] == 'a' || flipflopvar[0] == input) flipflopvar[0] = input;
+  else if(flipflopvar[1] == 'a' || flipflopvar[1] == input) flipflopvar[1] = input;
+
+  if(flipflopvar[0] == 'o' && flipflopvar[1] == 'i'){
+    printf("Going Inside\n");
+    return 1;
+  }
+  if(flipflopvar[0] == 'i' && flipflopvar[1] == 'o'){
+    printf("Going Outside\n");
+    return 0;
+  }
+  return -1;
 }
 
 void setup() {
@@ -81,11 +106,11 @@ void setup() {
   mfrc522.PCD_Init();   // Initiate MFRC522
   Serial.println("Approximate your card to the reader...");
   Serial.println();
-	ESP32PWM::allocateTimer(0);
+  flipflopvar[0] = 'a';
+  flipflopvar[1] = 'a';
 	lock.setPeriodHertz(50);    // standard 50 hz servo
 	lock.attach(servoPin, 1000, 2000); // attaches the servo on pin 18 to the servo object
   lock.write(180);
-  lockStat = true;
 }
 
 void loop() {
@@ -113,7 +138,7 @@ void loop() {
     
       if(distance1 < THRESHOLD){
         insideLow = true;
-        if(insideLowCount < 20) insideLowCount++;
+        if(insideLowCount < LOWCOUNT) insideLowCount++;
       } else {
         insideLow = false;
         insideLowCount = 0;
@@ -121,15 +146,30 @@ void loop() {
     
       if(distance2 < THRESHOLD){
         outsideLow = true;
-        if(outsideLowCount < 20) outsideLowCount++;
+        if(outsideLowCount < LOWCOUNT) outsideLowCount++;
       } else {
         outsideLow = false;
         outsideLowCount = 0;
       }
     
-      if(outsideLowCount == 3) flipflop('o');
-      if(insideLowCount == 3) flipflop('i');
+      printf("%d %d %c %c\n", insideLowCount, outsideLowCount, flipflopvar[0], flipflopvar[1]);
+
+      int retVal;
+      if(outsideLowCount == LOWCOUNT){
+        retVal = flipflop('o');
+      } else if(insideLowCount == LOWCOUNT){
+        retVal = flipflop('i');
+      } else {
+        flipflop('a');
+      }
     
+      if(retVal == 1 && lockStat == true){
+        tone(BUZZER_PIN, 2000); // Play 500 Hz tone
+        delay(1000);            // Let it play for 200ms
+        noTone(BUZZER_PIN);     // Stop the tone
+        flipflop('a');
+      }
+
       delay(5);
       
       if (!mfrc522.PICC_IsNewCardPresent()) {
@@ -169,7 +209,7 @@ void loop() {
       }
 
       pass.clear();
-      printf("Password: %s Correct Password: %s%c", pass, correct_pass, '\n');time_t start = time(NULL);
+      printf("Password: %s Correct Password: %s%c", pass, correct_pass, '\n');
     }
   }
   else {
@@ -215,7 +255,7 @@ void unlockFailEvent() {
   digitalWrite(FAIL_LED, HIGH);
   delay(500);             // Let it play for 200ms
   lock.write(180);
-  lockStat = false;
+  lockStat = true;
   noTone(BUZZER_PIN);     // Stop the tone
   digitalWrite(FAIL_LED, LOW);
   delay(500);             // Wait before next beep
