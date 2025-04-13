@@ -3,6 +3,8 @@
 #include <SPI.h>
 #include <MFRC522.h>
 #include <time.h>
+#include <ESP32PWM.h>
+#include <ESP32Servo.h>
 
 #define num_rows 4
 #define num_cols 4
@@ -21,12 +23,16 @@
 #define trig2 48
 #define echo2 45
 #define THRESHOLD 15
+#define servoPin 20
 
 bool insideLow = false;
 bool outsideLow = false;
 int insideLowCount = 0;
 int outsideLowCount = 0;
 char flipflopvar = ' ';
+
+Servo lock;
+bool lockStat; // false if unlocked
 
 int count = 0;
 String x = "";
@@ -75,6 +81,11 @@ void setup() {
   mfrc522.PCD_Init();   // Initiate MFRC522
   Serial.println("Approximate your card to the reader...");
   Serial.println();
+	ESP32PWM::allocateTimer(0);
+	lock.setPeriodHertz(50);    // standard 50 hz servo
+	lock.attach(servoPin, 1000, 2000); // attaches the servo on pin 18 to the servo object
+  lock.write(180);
+  lockStat = true;
 }
 
 void loop() {
@@ -192,6 +203,8 @@ void unlockSuccessEvent() {
   digitalWrite(SUCCESS_LED, HIGH); // Turn Unlock indicator LED on
   delay(500);             // Let it play for 200ms
   //implement unlocking
+  lock.write(0);
+  lockStat = false;
   digitalWrite(SUCCESS_LED, LOW); // Turn Unlock indicator LED OFF
   noTone(BUZZER_PIN);     // Stop the tone
   delay(500);             // Wait before next beep
@@ -201,6 +214,8 @@ void unlockFailEvent() {
   tone(BUZZER_PIN, 500); // Play 500 Hz tone
   digitalWrite(FAIL_LED, HIGH);
   delay(500);             // Let it play for 200ms
+  lock.write(180);
+  lockStat = false;
   noTone(BUZZER_PIN);     // Stop the tone
   digitalWrite(FAIL_LED, LOW);
   delay(500);             // Wait before next beep
