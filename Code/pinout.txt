@@ -1,0 +1,33 @@
+Numpad:
+	1 -> 37
+	2 -> 38
+	3 -> 39
+	4 -> 40
+	5 -> 41
+	6 -> 42
+	7 -> 2
+	8 -> 1
+
+RFID Scanner:
+	SDA -> 17
+	SCK -> 15
+	MOSI -> 7
+	MISO -> 6
+	RST -> 4
+
+Buzzer:
+	S -> 3
+
+Ultrasonic Sensor 1:
+	Trig -> 48
+	Echo -> 45
+
+Ultrasonic Sensor 2:
+	Trig -> 35
+	Echo -> 36
+
+LEDs:
+	13 & 14
+
+Servo Motor:
+	PWM: 21
