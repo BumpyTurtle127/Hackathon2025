@@ -1,0 +1,18 @@
+<html>
+  <body>
+    <h2>Access Log</h2>
+    <ul id="logList"></ul>
+    <script>
+      fetch('/api/logs')
+        .then(res => res.json())
+        .then(data => {
+          const logs = JSON.parse(data);
+          logs.forEach(log => {
+            const li = document.createElement("li");
+            li.textContent = log;
+            document.getElementById("logList").appendChild(li);
+          });
+        });
+    </script>
+  </body>
+</html>

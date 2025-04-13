@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ESP32 Smart Lock</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; background: #f2f2f2; }
+    h1, h2 { color: #333; }
+    input, button { padding: 8px; margin: 5px; }
+    .section { background: #fff; padding: 15px; margin-bottom: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+  </style>
+</head>
+<body>
+
+  <h1>🔐 ESP32 Smart Lock Admin Panel</h1>
+
+  <!-- Lock/Unlock Status -->
+  <div class="section">
+    <h2>Status</h2>
+    <p>Sensor: <span id="sensorStatus">Loading...</span></p>
+    <button onclick="getSensor()">🔄 Refresh Sensor</button>
+  </div>
+
+  <!-- Change Password -->
+  <div class="section">
+    <h2>Change Access Code</h2>
+    <input type="text" id="newPass" placeholder="New 4-digit code" maxlength="4">
+    <button onclick="changePassword()">Change Password</button>
+  </div>
+
+  <!-- Manage RFID -->
+  <div class="section">
+    <h2>Manage RFID Users</h2>
+    <input type="text" id="uidAdd" placeholder="UID to Add">
+    <button onclick="addUID()">Add UID</button>
+    <br>
+    <input type="text" id="uidRemove" placeholder="UID to Remove">
+    <button onclick="removeUID()">Remove UID</button>
+  </div>
+
+  <!-- Logs -->
+  <div class="section">
+    <h2>System Logs</h2>
+    <ul id="logList">Loading logs...</ul>
+    <button onclick="loadLogs()">🔄 Refresh Logs</button>
+  </div>
+
+  <script>
+    function getSensor() {
+      fetch('/api/sensor')
+        .then(res => res.json())
+        .then(data => {
+          document.getElementById("sensorStatus").innerText = data.sensor;
+        });
+    }
+
+    function changePassword() {
+      const newPass = document.getElementById("newPass").value;
+      if (newPass.length !== 4 || isNaN(newPass)) {
+        alert("Password must be 4 digits.");
+        return;
+      }
+      fetch('/api/config/password', {
+        method: 'POST',
+        body: newPass
+      }).then(res => res.json())
+        .then(data => alert(data.status || data.error));
+    }
+
+    function addUID() {
+      const uid = document.getElementById("uidAdd").value;
+      fetch('/api/config/rfid/add', {
+        method: 'POST',
+        body: uid
+      }).then(res => res.json())
+        .then(data => alert(data.status || data.error));
+    }
+
+    function removeUID() {
+      const uid = document.getElementById("uidRemove").value;
+      fetch('/api/config/rfid/remove', {
+        method: 'POST',
+        body: uid
+      }).then(res => res.json())
+        .then(data => alert(data.status || data.error));
+    }
+
+    function loadLogs() {
+      fetch('/api/logs')
+        .then(res => res.json())
+        .then(data => {
+          const list = document.getElementById("logList");
+          list.innerHTML = "";
+          const logItems = JSON.parse(data); // assuming logs is a JSON array string
+          logItems.forEach(item => {
+            const li = document.createElement("li");
+            li.innerText = item;
+            list.appendChild(li);
+          });
+        });
+    }
+
+    // Load on page start
+    getSensor();
+    loadLogs();
+  </script>
+</body>
+</html>

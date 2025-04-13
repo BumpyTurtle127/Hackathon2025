@@ -5,6 +5,9 @@
 #include <time.h>
 #include <ESP32PWM.h>
 #include <ESP32Servo.h>
+#include <WiFi.h>
+#include <WebServer.h>
+#include <SPIFFS.h>
 
 #define num_rows 4
 #define num_cols 4
@@ -23,13 +26,14 @@
 #define trig2 48
 #define echo2 45
 #define THRESHOLD 15
-#define servoPin 20
+#define LOWCOUNT 7
+#define servoPin 21
 
 bool insideLow = false;
 bool outsideLow = false;
 int insideLowCount = 0;
 int outsideLowCount = 0;
-char flipflopvar = ' ';
+char flipflopvar[2];
 
 Servo lock;
 bool lockStat; // false if unlocked
@@ -52,24 +56,135 @@ char keys[num_rows][num_cols] = {
   {'*', '0', '#', 'D'}
 };
 
+std::vector<String> approvedUIDs = {};
+
 Keypad k = Keypad(makeKeymap(keys), row_pins, col_pins, num_rows, num_cols);
 
 void unlockSuccessEvent();
 void unlockFailEvent();
 
-void flipflop(char input){
-  if(flipflopvar == ' ' || flipflopvar == input){
-      flipflopvar = input;
+int flipflop(char input){
+  // if(input == 'a'){
+  //   flipflopvar = 'a';
+  // }
+  // if(flipflopvar == 'a' || flipflopvar == input){
+  //     flipflopvar = input;
+  //     return -1;
+  // } else {
+  //   if(flipflopvar == 'o' && input == 'i'){
+  //     printf("Going Inside\n");
+  //     return 1;
+  //   }
+  //   if(flipflopvar == 'i' && input == 'o'){
+  //     printf("Going Outside\n");
+  //     return 0;
+  //   }
+  //   return -1;
+  // }
+  if(input == 'a' && flipflopvar[0] != 'a' && flipflopvar[1] != 'a'){
+    flipflopvar[0] = 'a';
+    flipflopvar[1] = 'a';
+  }
+  if(flipflopvar[0] == 'a' || flipflopvar[0] == input) flipflopvar[0] = input;
+  else if(flipflopvar[1] == 'a' || flipflopvar[1] == input) flipflopvar[1] = input;
+
+  if(flipflopvar[0] == 'o' && flipflopvar[1] == 'i'){
+    printf("Going Inside\n");
+    return 1;
+  }
+  if(flipflopvar[0] == 'i' && flipflopvar[1] == 'o'){
+    printf("Going Outside\n");
+    return 0;
+  }
+  return -1;
+}
+
+const char* ssid = "SmartLock-ESP32";
+const char* password = "12345678";
+
+WebServer server(80);
+
+String logs = "[\"System initialized\"]";
+bool sensorTriggered = false;
+
+void handleLogs() {
+  server.send(200, "application/json", logs);
+}
+
+void handleSensor() {
+  server.send(200, "application/json", "{\"sensor\": \"" + String(sensorTriggered ? "abnormal" : "normal") + "\"}");
+}
+
+void handleAddUID() {
+  if (server.hasArg("plain")) {
+    approvedUIDs.push_back(server.arg("plain"));
+    logs += ",\"UID added: " + server.arg("plain") + "\"";
+    server.send(200, "application/json", "{\"status\":\"UID added\"}");
+  }
+}
+
+void handleRemoveUID() {
+  if (server.hasArg("plain")) {
+    String toRemove = server.arg("plain");
+    approvedUIDs.erase(std::remove(approvedUIDs.begin(), approvedUIDs.end(), toRemove), approvedUIDs.end());
+    logs += ",\"UID removed: " + toRemove + "\"";
+    server.send(200, "application/json", "{\"status\":\"UID removed\"}");
+  }
+}
+
+
+void handleSetPassword() {
+  if (server.hasArg("plain")) {
+    String newPass = server.arg("plain");
+    if (newPass.length() == 4) {
+      correct_pass = newPass;
+      logs += ",\"Password changed\"";
+      server.send(200, "application/json", "{\"status\":\"Password changed\"}");
+    } else {
+      server.send(400, "application/json", "{\"error\":\"Password must be 4 digits\"}");
+    }
   } else {
-    if(flipflopvar == 'o' && input == 'i')
-      printf("Going Inside\n");
-    if(flipflopvar == 'i' && input == 'o')
-      printf("Going Outside\n");
-    flipflopvar = ' ';
+    server.send(400, "application/json", "{\"error\":\"No password provided\"}");
   }
 }
 
 void setup() {
+  Serial.begin(115200);
+  SPIFFS.begin(true);
+
+  WiFi.softAP(ssid, password);
+  Serial.println("AP IP address: " + WiFi.softAPIP().toString());
+
+  server.on("/", HTTP_GET, []() {
+    File file = SPIFFS.open("/index.html", "r");
+    if (!file) {
+      server.send(500, "text/plain", "File not found");
+      return;
+    }
+    server.streamFile(file, "text/html");
+    file.close();
+  });
+  
+  server.on("/logs.html", HTTP_GET, []() {
+    File file = SPIFFS.open("/logs.html", "r");
+    if (!file) {
+      server.send(500, "text/plain", "File not found");
+      return;
+    }
+    server.streamFile(file, "text/html");
+    file.close();
+  });
+  
+  server.on("/api/logs", HTTP_GET, handleLogs);
+  server.on("/api/sensor", HTTP_GET, handleSensor);
+  server.on("/api/config/rfid/add", HTTP_POST, handleAddUID);
+  server.on("/api/config/rfid/remove", HTTP_POST, handleRemoveUID);
+
+  server.on("/api/config/password", HTTP_POST, handleSetPassword);
+
+
+  server.begin();
+
   Serial.begin(115200);
   pinMode(13, OUTPUT);
   pinMode(14, OUTPUT);
@@ -81,14 +196,16 @@ void setup() {
   mfrc522.PCD_Init();   // Initiate MFRC522
   Serial.println("Approximate your card to the reader...");
   Serial.println();
-	ESP32PWM::allocateTimer(0);
+  flipflopvar[0] = 'a';
+  flipflopvar[1] = 'a';
 	lock.setPeriodHertz(50);    // standard 50 hz servo
 	lock.attach(servoPin, 1000, 2000); // attaches the servo on pin 18 to the servo object
   lock.write(180);
-  lockStat = true;
 }
 
 void loop() {
+  server.handleClient();
+
   if(RFID_set) {
     if(correct_pass.length() < 4) {
       char key = k.getKey();
@@ -113,7 +230,7 @@ void loop() {
     
       if(distance1 < THRESHOLD){
         insideLow = true;
-        if(insideLowCount < 20) insideLowCount++;
+        if(insideLowCount < LOWCOUNT) insideLowCount++;
       } else {
         insideLow = false;
         insideLowCount = 0;
@@ -121,15 +238,32 @@ void loop() {
     
       if(distance2 < THRESHOLD){
         outsideLow = true;
-        if(outsideLowCount < 20) outsideLowCount++;
+        if(outsideLowCount < LOWCOUNT) outsideLowCount++;
       } else {
         outsideLow = false;
         outsideLowCount = 0;
       }
     
-      if(outsideLowCount == 3) flipflop('o');
-      if(insideLowCount == 3) flipflop('i');
+      printf("%d %d %c %c\n", insideLowCount, outsideLowCount, flipflopvar[0], flipflopvar[1]);
+
+      int retVal;
+      if(outsideLowCount == LOWCOUNT){
+        retVal = flipflop('o');
+      } else if(insideLowCount == LOWCOUNT){
+        retVal = flipflop('i');
+      } else {
+        flipflop('a');
+      }
     
+      if(retVal == 1 && lockStat == true){
+        sensorTriggered = true;
+        logs+=",\"Movement detected:Going Inside\"";
+        tone(BUZZER_PIN, 2000); // Play 500 Hz tone
+        delay(1000);            // Let it play for 200ms
+        noTone(BUZZER_PIN);     // Stop the tone
+        flipflop('a');
+      }
+
       delay(5);
       
       if (!mfrc522.PICC_IsNewCardPresent()) {
@@ -169,7 +303,7 @@ void loop() {
       }
 
       pass.clear();
-      printf("Password: %s Correct Password: %s%c", pass, correct_pass, '\n');time_t start = time(NULL);
+      printf("Password: %s Correct Password: %s%c", pass, correct_pass, '\n');
     }
   }
   else {
@@ -215,8 +349,15 @@ void unlockFailEvent() {
   digitalWrite(FAIL_LED, HIGH);
   delay(500);             // Let it play for 200ms
   lock.write(180);
-  lockStat = false;
+  lockStat = true;
   noTone(BUZZER_PIN);     // Stop the tone
   digitalWrite(FAIL_LED, LOW);
   delay(500);             // Wait before next beep
+}
+
+bool isApproved(String uid) {
+  for (String id : approvedUIDs) {
+    if (uid == id) return true;
+  }
+  return false;
 }
